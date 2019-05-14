@@ -1,7 +1,6 @@
 package cn.xzxy.lewy.ml
 
 import cn.xzxy.lewy.util.MysqlTrait
-import org.apache.spark.SparkContext
 import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -11,7 +10,7 @@ import scala.collection.mutable.ArrayBuffer
 object KmeansML extends MysqlTrait {
 
   def itemClusterFunc(paperCode: String, createTime: String, akinds: Int, tempMAQ: ArrayBuffer[Int],
-                      spark: SparkSession, sc: SparkContext): Unit = {
+                      spark: SparkSession): Unit = {
     var iMarkPartSql: String = ""
     for (i <- 1 to akinds) {
       iMarkPartSql += "item" + i + ".*,"
@@ -24,11 +23,11 @@ object KmeansML extends MysqlTrait {
       "substr(stuCode,5,2) cc, " +
       "substr(stuCode,7,2) nc, " + iMarkPartSql.dropRight(1) + " from t_origin_item")
 
-    doKmeans(itemMarkDf, paperCode, createTime, tempMAQ, spark, sc)
+    doKmeans(itemMarkDf, paperCode, createTime, tempMAQ, spark)
   }
 
-  def doKmeans(iMarkDf: DataFrame, paperCode: String, createTime: String, tmaq: ArrayBuffer[Int],
-               spark: SparkSession, sc: SparkContext): Unit = {
+  def doKmeans(iMarkDf: DataFrame, paperCode: String, createTime: String,
+               tmaq: ArrayBuffer[Int], spark: SparkSession): Unit = {
 
     /**
       * 第一部分：数据处理
@@ -69,7 +68,7 @@ object KmeansML extends MysqlTrait {
     println("Spark MLlib K-means clustering starts ....")
     println("Cluster Number:" + model.clusterCenters.length)
 
-    println("Cluster Centers Information Overview:")
+    //println("Cluster Centers Information Overview:")
     //聚类中心点：
     //Center Point of Cluster 0:
     //[xxx,xxx,xxx,xxx,xxx,xxx,xxx,xxx]
@@ -177,6 +176,7 @@ object KmeansML extends MysqlTrait {
     val kRecordDf = spark.sql("select stuCode stu_code, \"" + haItem + "\" good_item, \"" + laItem + "\" bad_item, " + paperCode + " paper_code, " + center + " centers, " + createTime + " create_time from temp_item_cluster")
 
     //写入数据库中
+    println("now center:" + center + " data write into mysql:t_item_cluster starts ....")
     kRecordDf.write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_item_cluster", prop)
   }
 

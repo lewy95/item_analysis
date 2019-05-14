@@ -3,7 +3,7 @@ package cn.xzxy.lewy.etl
 import cn.xzxy.lewy.ml.{FPGowthML, KmeansML}
 import cn.xzxy.lewy.util.{HdfsTrait, MysqlTrait}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.collection.mutable._
@@ -19,7 +19,7 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     val sparkConf = new SparkConf().setAppName("itemAnalysis")
       .setMaster("local[*]")
       .set("spark.debug.maxToStringFields", "100")
-      //.set("spark.sql.warehouse.dir", "file:///home/hadoop/lewy/spark-warehouse")
+    //.set("spark.sql.warehouse.dir", "file:///home/hadoop/lewy/spark-warehouse")
 
     val spark = SparkSession
       .builder()
@@ -27,39 +27,48 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
       .enableHiveSupport()
       .getOrCreate()
 
-    val sc = new SparkContext(sparkConf)
+    //val sc = new SparkContext(sparkConf)
 
-    //暂时先不用，目前只有两个参数
-    //if(args.length < 6){
-    //  System.err.println("Usage: <inputDataset> <outputDir>")
-    //  System.exit(-1)
-    //}
+    //判断传入的参数个数是否正确
+    if(args.length != 4){
+      System.err.println("Usage: <inputDir> <paperCode> <submitTime> <executorStep>")
+      System.exit(-1)
+    }
 
     //接收命令行传递的参数
     val input = args(0) //输入文件目录hdfs://hadoop01:9000/itemdata/reportTime=2019-02-27 这个路径由web端生成
 
     val paperCode: String = args(1) //试卷编号 这个也由web端生成
+    val submitTime: String = args(2) //用户提交时间 这个也由web端生成
 
-    //设置执行过程 1:只执行关联性分析，不执行聚类分析
-    //            2:只执行聚类分析，不执行关联性分析
-    //            3:都执行
-    //            0:都不执行，只执行试卷指标分析
-    val executorStep = args(2).toInt
+    //设置执行过程
+    //  1:只执行试卷指标分析，其他都不执行
+    //  2:只执行关联性分析，不执行聚类分析
+    //  3:只执行聚类分析，不执行关联性分析
+    //  一共有七种组合 3 + 3 + 1
+    //  只做一个part的 1  2  3
+    //  只做两个part的 12 12 23
+    //  三个part都做的 123
+    val executorStep = args(3) //由web端生成
 
     //获取时间戳最近的数据作为分析数据
     val path = input + "/" + paperCode
-    val createTime = getFiles(path).map(_.toString.split("\\.")(1)).max
+    //根据提交时间来获取flume中对应的时间戳
+    //但由于网络延迟，提交的时间戳和flume中不会一致，但肯定比它小，所以取第一个比提交时间大的时间戳
+    val createTime = getFiles(path).map(_.toString.split("\\.")(1)).filter(x=> x>= submitTime)(0)
+    //这里还可以优化，模式匹配+option判断createTime是否有值
+    //没有值的话则取hdfs中最新的，有值的话直接用
+    //可以解决处理试题指标后再想要进行相关性分析或聚类分析的操作
 
     //sparkSql原生api，需要进行隐式转换
     import spark.implicits._
 
     /**
-      * step1: 数据初始化
+      * part 1 : 数据初始化
       * jobs:
       * 1. 导入原始数据
       * 2. 创建数据库即数据库表
       * 3. 拿到试题的信息（各大题题数及分值）
-      * 4. 计算试题的总得分情况（建表，计算，落地）
       */
     //导入试题得分信息
     val originItemDf = spark.read.json(path + "/data." + createTime)
@@ -74,9 +83,6 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     //选择目标数据库，若不存在则创建
     spark.sql("create database if not EXISTS packmas_pro")
     spark.sql("use packmas_pro")
-
-    //记录试题样本总数
-    val itemCount = originItemDf.count().toInt
 
     //先拿到大题的数目（总题数，客观题题数，主观题题数）
     val akinds = originPaperDf.select($"all_items").first.getAs[Int]("all_items")
@@ -98,50 +104,68 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     tempMAQ.insert(0, 0)
     tempMAQ += 0
 
-    //拿到拼接后的sql，计算试题的总得分情况
-    val totalScoreDf = getTotalScoreDf(tempMAQ, akinds, paperCode, createTime, spark)
-
-    //确定高低分组的人数（总样本数*0.27）
-    val perGroupCount: Int = (itemCount * 0.27).round.toInt
-    //排序,获得高分组和低分组学生信息
-    val hgDf = totalScoreDf.orderBy($"totalScore".desc).limit(perGroupCount)
-    hgDf.createOrReplaceTempView("t_item_hgInfo")
-    val lgDf = totalScoreDf.orderBy($"totalScore").limit(perGroupCount)
-    lgDf.createOrReplaceTempView("t_item_lgInfo")
-
     /**
-      * step2: 计算每道试题的指标并落地
+      * part 2 :试题基本指标分析
       */
-    val itemIndexDf = itemIndexFunc(paperCode, createTime, itemCount, perGroupCount, okinds, skinds, tempMAQ, markAndQuantity, spark)
+    if (executorStep.contains("1")) {
 
-    /**
-      * step3: 计算整张试卷的指标并落地
-      */
-    val paperIndexDf = paperIndexFunc(paperCode, createTime, markAndQuantity, spark)
+      println("totalScore starts ....")
 
+      //拿到拼接后的sql，计算试题的总得分情况
+      val totalScoreDf = getTotalScoreDf(tempMAQ, akinds, paperCode, createTime, spark)
 
-    //**************基于上面三步*****************
-    //数据落地到mysql都写在一起
-    totalScoreDf.selectExpr("stuCode as stu_code", "totalScore as total_score", "paperCode as paper_code", "create_time")
-      .write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_score_total", prop)
-    itemIndexDf.write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_item_index", prop)
-    paperIndexDf.write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_paper_index", prop)
-    //********到此试题基本指标分析完成************
+      //记录试题样本总数
+      val itemCount = originItemDf.count().toInt
 
-    /**
-      * step4: 执行fpGrowth，进行关联性分析
-      */
-    if (executorStep == 1 || executorStep == 3){
-      //val relation = new FPGowthML
-      FPGowthML.itemIfTrueFunc(paperCode, createTime, tempMAQ, akinds, okinds, spark, sc)
+      //确定高低分组的人数（总样本数*0.27）
+      val perGroupCount: Int = (itemCount * 0.27).round.toInt
+
+      //分别获得高分组和低分组学生信息
+      val hgDf = totalScoreDf.orderBy($"totalScore".desc).limit(perGroupCount)
+      hgDf.createOrReplaceTempView("t_item_hgInfo")
+      val lgDf = totalScoreDf.orderBy($"totalScore").limit(perGroupCount)
+      lgDf.createOrReplaceTempView("t_item_lgInfo")
+
+      /**
+        * step2: 计算每道试题的指标并落地
+        */
+      println("itemIndex starts ....")
+      val itemIndexDf = itemIndexFunc(paperCode, createTime, itemCount, perGroupCount, okinds, skinds, tempMAQ, markAndQuantity, spark)
+
+      /**
+        * step3: 计算整张试卷的指标并落地
+        */
+      println("paperIndex starts ....")
+      val paperIndexDf = paperIndexFunc(paperCode, createTime, markAndQuantity, spark)
+
+      //**************基于上面三步*****************
+      //数据落地到mysql都写在一起
+      println("now write into mysql:t_score_total starts ....")
+      totalScoreDf.selectExpr("stuCode as stu_code", "totalScore as total_score", "paperCode as paper_code", "create_time")
+        .write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_score_total", prop)
+
+      println("now write into mysql:t_item_index starts ....")
+      itemIndexDf.write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_item_index", prop)
+
+      println("now write into mysql:t_paper_index starts ....")
+      paperIndexDf.write.mode("append").jdbc("jdbc:mysql://hadoop01:3306/packmas", "t_paper_index", prop)
+      //********到此试题基本指标分析完成************
     }
 
     /**
-      * step5: 执行kmeans，执行聚类分析
+      * part 3 : 执行fpGrowth，进行关联性分析
       */
-    if (executorStep == 2 || executorStep == 3){
+    if (executorStep.contains("2")) {
+      //val relation = new FPGowthML
+      FPGowthML.itemIfTrueFunc(paperCode, createTime, tempMAQ, akinds, okinds, spark)
+    }
+
+    /**
+      * part 4 : 执行kmeans，执行聚类分析
+      */
+    if (executorStep.contains("3")) {
       //val cluster = new KmeansML
-      KmeansML.itemClusterFunc(paperCode, createTime, akinds, tempMAQ, spark, sc)
+      KmeansML.itemClusterFunc(paperCode, createTime, akinds, tempMAQ, spark)
     }
 
     //关闭sparkSession
@@ -275,7 +299,9 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     val iqAll = markAndQuantity.take(markAndQuantity.length / 2).sum.toDouble
 
     //拼接计算语句
-    val paperSql = "select " + paperCode + " paper_code, max(total_score) max_score, min(total_score) min_score, avg(total_score) avg_score, VAR_POP(total_score) fc_score, STDDEV_POP(total_score) bzc_score, (select avg(nandu) from t_item_index) nandu, (select avg(qufendu) from t_item_index) qufendu, ((" + iqAll + "/" + (iqAll - 1) + ")*(1-(select sum(fc_score) from t_item_index)/var_pop(total_score))) xindu, " + createTime + " as create_time from t_score_total"
+    val tempIIDf = spark.sql("select avg(nandu) an, avg(qufendu) aq, sum(fc_score) sfc from t_item_index where paper_code = " + paperCode + " and create_time = " + createTime)
+    tempIIDf.createOrReplaceTempView("temp_item_index")
+    val paperSql = "select " + paperCode + " paper_code, max(total_score) max_score, min(total_score) min_score, avg(total_score) avg_score, VAR_POP(total_score) fc_score, STDDEV_POP(total_score) bzc_score, (select an from temp_item_index) nandu, (select aq from temp_item_index) qufendu, ((" + iqAll + "/" + (iqAll - 1) + ")*(1-(select sfc from temp_item_index)/var_pop(total_score))) xindu, " + createTime + " as create_time from t_score_total where paper_code = " + paperCode + " and create_time = " + createTime
 
     val paperIndexDf = spark.sql(paperSql)
     paperIndexDf.createOrReplaceTempView("temp_paper_index")

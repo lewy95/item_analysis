@@ -1,7 +1,6 @@
 package cn.xzxy.lewy.ml
 
 import cn.xzxy.lewy.util.MysqlTrait
-import org.apache.spark.SparkContext
 import org.apache.spark.mllib.fpm.FPGrowth
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
@@ -17,10 +16,9 @@ object FPGowthML extends MysqlTrait {
     * @param okinds    客观题总数
     * @param paperCode 试卷编号
     * @param spark     sparkSession
-    * @param sc        sparkContext
     */
   def itemIfTrueFunc(paperCode: String, createTime: String, tempMAQ: ArrayBuffer[Int],
-                     akinds: Int, okinds: Int, spark: SparkSession, sc: SparkContext): Unit = {
+                     akinds: Int, okinds: Int, spark: SparkSession): Unit = {
 
     var tfKindNum = 1 //大题序号
     var tfItemIndex = 1 //小题序号
@@ -75,12 +73,12 @@ object FPGowthML extends MysqlTrait {
     //saveToHdfs(tofDf, outputPath, splitRex, SaveMode.Append)
 
     //进行fpgrowth关联性分析
-    doFpGrowth(tofDf, paperCode, createTime, spark, sc)
+    doFpGrowth(tofDf, paperCode, createTime, spark)
 
   }
 
   def doFpGrowth(tofDf: DataFrame, paperCode: String, createTime: String,
-                 spark: SparkSession, sc: SparkContext): Unit = {
+                 spark: SparkSession): Unit = {
 
     import spark.implicits._
 
@@ -92,8 +90,8 @@ object FPGowthML extends MysqlTrait {
     transactions.cache()
 
     //设置参数
-    val minSupport = 0.65 //最小支持度，只能在0~1之间
-    val minConfidence = 0.8 //最小置信度，只能在0~1之间
+    val minSupport = 0.6 //最小支持度，只能在0~1之间
+    val minConfidence = 0.85 //最小置信度，只能在0~1之间
     val numPartitions = 2 //数据分区
 
     println("Spark FP-Growth starts ....")
@@ -145,15 +143,13 @@ object FPGowthML extends MysqlTrait {
     //本质一个rule是 Array(a,b) => Array(c) : 0.8
     model.generateAssociationRules(minConfidence).collect().foreach(
       rule => {
-        val preOrder = rule.antecedent.mkString(",")
-        val sufOrder = rule.consequent(0).toString
+        val preOrder = rule.antecedent.map(_.dropRight(1)).mkString(",")
+        val sufOrder = rule.consequent(0).dropRight(1)
         val confidence = rule.confidence.toString
         //val ruleList:List[String] = preOrder::sufOrder::confidence::Nil
         ruleArray += Array(preOrder, sufOrder, confidence)
         //ruleArray.map(parts=>KnowLedge(parts(0),parts(1),parts(2)))
       })
-
-    println("Spark FP-Growth finished .....")
 
     println("write after-fp-data into mysql:t_item_fpg now ....")
     //将分析出的规则转入为df，并存入mysql数据库
@@ -167,6 +163,8 @@ object FPGowthML extends MysqlTrait {
     println("write mysql:t_item_fpg finished ....")
     //查看规则生成的数量
     //println(model.generateAssociationRules(minConfidence).collect().length)
+
+    println("Spark FP-Growth finished .....")
   }
 
   /**
