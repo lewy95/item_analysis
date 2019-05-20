@@ -6,7 +6,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.collection.mutable.ArrayBuffer
 
-object FPGowthML extends MysqlTrait {
+object FPGrowthML extends MysqlTrait {
 
   /**
     * 处理试题得分数据，制作成对错分析表

@@ -6,12 +6,12 @@ import java.util.Date
 object UtilTest {
 
   def main(args: Array[String]): Unit = {
-    //println(nowDate())
+    println(nowDate())
 
-    val dowhat = "2"
-    if (dowhat.contains("1")) println("doItemIndex")
-    if (dowhat.contains("2")) println("doFPGrowth")
-    if (dowhat.contains("3")) println("doKmeans")
+    //val dowhat = "2"
+    //if (dowhat.contains("1")) println("doItemIndex")
+    //if (dowhat.contains("2")) println("doFPGrowth")
+    //if (dowhat.contains("3")) println("doKmeans")
   }
 
   def nowDate(): String = {

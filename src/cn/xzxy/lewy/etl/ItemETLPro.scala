@@ -1,6 +1,6 @@
 package cn.xzxy.lewy.etl
 
-import cn.xzxy.lewy.ml.{FPGowthML, KmeansML}
+import cn.xzxy.lewy.ml.{FPGrowthML, FPGrowthML2, KmeansML}
 import cn.xzxy.lewy.util.{HdfsTrait, MysqlTrait}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.SparkConf
@@ -112,7 +112,7 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
       println("totalScore starts ....")
 
       //拿到拼接后的sql，计算试题的总得分情况
-      val totalScoreDf = getTotalScoreDf(tempMAQ, akinds, paperCode, createTime, spark)
+      val totalScoreDf = getTotalScoreDf(tempMAQ, akinds, paperCode, submitTime, spark)
 
       //记录试题样本总数
       val itemCount = originItemDf.count().toInt
@@ -130,13 +130,13 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
         * step2: 计算每道试题的指标并落地
         */
       println("itemIndex starts ....")
-      val itemIndexDf = itemIndexFunc(paperCode, createTime, itemCount, perGroupCount, okinds, skinds, tempMAQ, markAndQuantity, spark)
+      val itemIndexDf = itemIndexFunc(paperCode, submitTime, itemCount, perGroupCount, okinds, skinds, tempMAQ, markAndQuantity, spark)
 
       /**
         * step3: 计算整张试卷的指标并落地
         */
       println("paperIndex starts ....")
-      val paperIndexDf = paperIndexFunc(paperCode, createTime, markAndQuantity, spark)
+      val paperIndexDf = paperIndexFunc(paperCode, submitTime, markAndQuantity, spark)
 
       //**************基于上面三步*****************
       //数据落地到mysql都写在一起
@@ -157,7 +157,10 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
       */
     if (executorStep.contains("2")) {
       //val relation = new FPGowthML
-      FPGowthML.itemIfTrueFunc(paperCode, createTime, tempMAQ, akinds, okinds, spark)
+      //以试题为标准的关联性分析
+      //FPGrowthML.itemIfTrueFunc(paperCode, createTime, tempMAQ, akinds, okinds, spark)
+      //以知识点为标准的关联性分析
+      FPGrowthML2.itemIfTrueFunc(paperCode, submitTime, tempMAQ, akinds, spark)
     }
 
     /**
@@ -165,7 +168,7 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
       */
     if (executorStep.contains("3")) {
       //val cluster = new KmeansML
-      KmeansML.itemClusterFunc(paperCode, createTime, akinds, tempMAQ, spark)
+      KmeansML.itemClusterFunc(paperCode, submitTime, akinds, tempMAQ, spark)
     }
 
     //关闭sparkSession
