@@ -16,10 +16,12 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
 
-    val sparkConf = new SparkConf().setAppName("itemAnalysis")
-      .setMaster("local[*]")
+    val sparkConf = new SparkConf()
+      //.setAppName("itemAnalysis")
+      //.setMaster("local[*]")
       .set("spark.debug.maxToStringFields", "100")
-    //.set("spark.sql.warehouse.dir", "file:///home/hadoop/lewy/spark-warehouse")
+      .set("spark.testing.memory", "1073741824")
+      .set("spark.sql.warehouse.dir", "file:///home/software/spark-2.1.1/bin/spark-warehouse")
 
     val spark = SparkSession
       .builder()
@@ -81,7 +83,8 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     originPaperDf.createOrReplaceTempView("t_origin_paper")
 
     //选择目标数据库，若不存在则创建
-    spark.sql("create database if not EXISTS packmas_pro")
+    //当数据库已存在，再执行下面这句话会报错，可能是版本的问题，先注释掉了
+    //spark.sql("create database if not EXISTS packmas_pro")
     spark.sql("use packmas_pro")
 
     //先拿到大题的数目（总题数，客观题题数，主观题题数）
@@ -330,7 +333,7 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     spark.sql("create table if not exists t_score_total(" +
       "stu_code string, " +
       "total_score int) " +
-      "partitioned by(paper_code string,createTime string) " +
+      "partitioned by(paper_code string, create_time string) " +
       "row format delimited fields terminated by ','")
 
     var kindNum = 1 //大题序号
