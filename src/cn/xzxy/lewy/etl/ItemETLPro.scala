@@ -1,5 +1,7 @@
 package cn.xzxy.lewy.etl
 
+import java.io.File
+
 import cn.xzxy.lewy.ml.{FPGrowthML, FPGrowthML2, KmeansML}
 import cn.xzxy.lewy.util.{HdfsTrait, MysqlTrait}
 import org.apache.log4j.{Level, Logger}
@@ -13,7 +15,7 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
   def main(args: Array[String]): Unit = {
 
     //关闭不必要的日志
-    Logger.getLogger("org").setLevel(Level.OFF)
+    //Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
 
     val sparkConf = new SparkConf()
@@ -21,7 +23,7 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
       //.setMaster("local[*]")
       .set("spark.debug.maxToStringFields", "100")
       .set("spark.testing.memory", "1073741824")
-      .set("spark.sql.warehouse.dir", "file:///home/software/spark-2.1.1/bin/spark-warehouse")
+      .set("spark.sql.warehouse.dir", "hdfs://hadoop01:9000/spark-warehouse")
 
     val spark = SparkSession
       .builder()
@@ -83,9 +85,9 @@ object ItemETLPro extends MysqlTrait with HdfsTrait {
     originPaperDf.createOrReplaceTempView("t_origin_paper")
 
     //选择目标数据库，若不存在则创建
-    //当数据库已存在，再执行下面这句话会报错，可能是版本的问题，先注释掉了
-    //spark.sql("create database if not EXISTS packmas_pro")
-    spark.sql("use packmas_pro")
+    //当数据库已存在，再执行下面这句话会报错，可能是版本的问题，不影响
+    spark.sql("create database if not EXISTS packmas_fcb")
+    spark.sql("use packmas_fcb")
 
     //先拿到大题的数目（总题数，客观题题数，主观题题数）
     val akinds = originPaperDf.select($"all_items").first.getAs[Int]("all_items")
