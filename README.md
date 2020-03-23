@@ -1,0 +1,11 @@
+# item_analysis
+The traditional test paper analysis system has many shortcomings in the aspects of high throughput and high scalability. In particular, if the method of machine learning is adopted to carry out in-depth analysis of the examinee's answer feedback, the capacity of data throughput becomes the biggest bottleneck of this kind of system. However, if the existing test paper system build on big data platform, can easily deal with huge amounts of data, and can well solve the problems are caused by machine learning.
+
+The goal of this project is to develop a test question analysis system based on big data platform. Users can submit test data of candidates in large quantities, and the submitted data will be uploaded to HDFS(Hadoop Distributed File System) through flume. Then computing framework based on memory spark will fetch the data from HDFS, and use the hive on spark technology to build data warehouses.
+
+This system based on the basis of traditional statistics and classical test theory, realizes to the question of difficulty, degree of differentiation, and the reliability index calculation, in addition into the data mining technology, through the use of Spark machine learning repository MLlib on students' problem solving, correlation analysis and cluster analysis to dig out the hidden data more valuable information.
+
+In terms of correlation analysis, this system adopts fp-growth algorithm, and based on the data of students' test, it excavates the implicit correlation between knowledge points, which is helpful to strengthen students' mastery of knowledge points. In terms of cluster analysis, k-means algorithm is adopted to group students with different feedback information of answering questions under the condition of unknown grouping criteria. In addition, the common situation of knowledge points mastered by middle school students in each group is further analyzed, which provides a reliable factual basis for grouping teaching by teachers.
+
+To sum up, this system aims to build a test data analysis system based on the big data platform. On the premise of ensuring high throughput and high scalability, this system tries to provide better decision-making basis for teachers to improve their teaching work, which largely promotes the improvement of teaching quality and innovation in the field of education.
+
